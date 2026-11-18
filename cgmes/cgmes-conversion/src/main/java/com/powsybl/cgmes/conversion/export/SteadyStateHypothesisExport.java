@@ -29,6 +29,8 @@ import com.powsybl.cgmes.extensions.CgmesTapChanger;
 import com.powsybl.cgmes.model.CgmesMetadataModel;
 import com.powsybl.cgmes.model.CgmesNames;
 import com.powsybl.cgmes.model.CgmesSubset;
+import com.powsybl.cgmes.model.statement.CgmesObject;
+import com.powsybl.cgmes.model.statement.CgmesObjectSink;
 import com.powsybl.commons.PowsyblException;
 import com.powsybl.commons.exceptions.UncheckedXmlStreamException;
 import com.powsybl.iidm.network.*;
@@ -75,7 +77,7 @@ public final class SteadyStateHypothesisExport {
     public static void write(Network network, XMLStreamWriter writer, CgmesExportContext context, CgmesMetadataModel model) {
         SteadyStateHypothesisWriter sshWriter = new SteadyStateHypothesisWriter(writer, context);
         final Map<String, List<RegulatingControlView>> regulatingControlViews = new HashMap<>();
-        CgmesStatementSink<SshStatement> sink = statement -> statement.write(sshWriter);
+        CgmesObjectSink sink = sshWriter::write;
 
         try {
             sshWriter.writeRdfRoot();
@@ -104,7 +106,7 @@ public final class SteadyStateHypothesisExport {
         }
     }
 
-    private static void exportSwitches(Network network, CgmesStatementSink<SshStatement> sink, CgmesExportContext context) {
+    private static void exportSwitches(Network network, CgmesObjectSink sink, CgmesExportContext context) {
         for (Switch sw : network.getSwitches()) {
             if (context.isExportedEquipment(sw)) {
                 String switchType = sw.getProperty(PROPERTY_CGMES_ORIGINAL_CLASS); // may be null
@@ -115,7 +117,7 @@ public final class SteadyStateHypothesisExport {
         }
     }
 
-    private static void exportTerminalForSwitches(Network network, CgmesStatementSink<SshStatement> sink, CgmesExportContext context) {
+    private static void exportTerminalForSwitches(Network network, CgmesObjectSink sink, CgmesExportContext context) {
         for (Switch sw : network.getSwitches()) {
             if (context.isExportedEquipment(sw)) {
                 String switchType = sw.getProperty(PROPERTY_CGMES_ORIGINAL_CLASS); // may be null
@@ -143,7 +145,7 @@ public final class SteadyStateHypothesisExport {
         }
     }
 
-    private static void exportTerminalForBoundaryLines(Network network, CgmesStatementSink<SshStatement> sink, CgmesExportContext context) {
+    private static void exportTerminalForBoundaryLines(Network network, CgmesObjectSink sink, CgmesExportContext context) {
         for (BoundaryLine bl : network.getBoundaryLines(BoundaryLineFilter.ALL)) {
             // Terminal for equivalent injection at boundary is always connected
             exportTerminal(context.getNamingStrategy().getCgmesIdFromProperty(bl, PROPERTY_EQUIVALENT_INJECTION_TERMINAL), true, sink, context);
@@ -152,7 +154,7 @@ public final class SteadyStateHypothesisExport {
         }
     }
 
-    private static void exportTerminalForBuses(Network network, CgmesStatementSink<SshStatement> sink, CgmesExportContext context) {
+    private static void exportTerminalForBuses(Network network, CgmesObjectSink sink, CgmesExportContext context) {
         for (Bus b : network.getBusBreakerView().getBuses()) {
             String bbsTerminals = b.getProperty(PROPERTY_BUSBAR_SECTION_TERMINALS, "");
             if (!bbsTerminals.isEmpty()) {
@@ -163,7 +165,7 @@ public final class SteadyStateHypothesisExport {
         }
     }
 
-    private static void exportTerminals(Network network, CgmesStatementSink<SshStatement> sink, CgmesExportContext context) {
+    private static void exportTerminals(Network network, CgmesObjectSink sink, CgmesExportContext context) {
         for (Connectable<?> c : network.getConnectables()) { // TODO write boundary terminals for tie lines from CGMES
             if (context.isExportedEquipment(c)) {
                 if (CgmesExportUtil.isEquivalentShuntWithZeroSectionCount(c)) {
@@ -185,7 +187,7 @@ public final class SteadyStateHypothesisExport {
         }
     }
 
-    private static void exportFictitiousInjections(Network network, CgmesStatementSink<SshStatement> sink, CgmesExportContext context) throws XMLStreamException {
+    private static void exportFictitiousInjections(Network network, CgmesObjectSink sink, CgmesExportContext context) throws XMLStreamException {
         for (VoltageLevel vl : network.getVoltageLevels()) {
             if (vl.getTopologyKind() == TopologyKind.NODE_BREAKER && !context.isBusBranchExport()) {
                 exportNodeBreakerFictitiousInjections(vl, sink, context);
@@ -195,7 +197,7 @@ public final class SteadyStateHypothesisExport {
         }
     }
 
-    private static void exportNodeBreakerFictitiousInjections(VoltageLevel vl, CgmesStatementSink<SshStatement> sink, CgmesExportContext context) throws XMLStreamException {
+    private static void exportNodeBreakerFictitiousInjections(VoltageLevel vl, CgmesObjectSink sink, CgmesExportContext context) throws XMLStreamException {
         VoltageLevel.NodeBreakerView nb = vl.getNodeBreakerView();
         for (int node : nb.getNodes()) {
             double p = nb.getFictitiousP0(node);
@@ -208,7 +210,7 @@ public final class SteadyStateHypothesisExport {
         }
     }
 
-    private static void exportBusBranchFictitiousInjections(VoltageLevel vl, CgmesStatementSink<SshStatement> sink, CgmesExportContext context) throws XMLStreamException {
+    private static void exportBusBranchFictitiousInjections(VoltageLevel vl, CgmesObjectSink sink, CgmesExportContext context) throws XMLStreamException {
         for (Bus b : vl.getBusBreakerView().getBuses()) {
             double p = b.getFictitiousP0();
             double q = b.getFictitiousQ0();
@@ -221,20 +223,22 @@ public final class SteadyStateHypothesisExport {
     }
 
     private static void exportFictitiousInjection(String loadId, String terminalId, double p, double q,
-                                                  CgmesStatementSink<SshStatement> sink,
+                                                  CgmesObjectSink sink,
                                                   CgmesExportContext context) throws XMLStreamException {
         if (p <= 0) {
             EnergySourceSsh energySource = new EnergySourceSsh(loadId, p, q);
-            sink.accept(energySource);
+            CgmesObject energySourceStatements = energySource.normalize(cimNamespace(context));
+            sink.accept(energySourceStatements);
         } else {
             EnergyConsumerSsh energyConsumer = new EnergyConsumerSsh(CgmesNames.NONCONFORM_LOAD, loadId, p, q);
-            sink.accept(energyConsumer);
+            CgmesObject energyConsumerStatements = energyConsumer.normalize(cimNamespace(context));
+            sink.accept(energyConsumerStatements);
         }
         // Terminal connected state (always connected in SSH for fictitious terminals)
         exportTerminal(terminalId, true, sink, context);
     }
 
-    private static void exportEquivalentInjections(Network network, CgmesStatementSink<SshStatement> sink, CgmesExportContext context) throws XMLStreamException {
+    private static void exportEquivalentInjections(Network network, CgmesObjectSink sink, CgmesExportContext context) throws XMLStreamException {
         // One equivalent injection for every boundary line
         List<String> exported = new ArrayList<>();
 
@@ -256,14 +260,15 @@ public final class SteadyStateHypothesisExport {
                     regulationStatus,
                     regulationTarget
                 );
-                sink.accept(equivalentInjection);
+                CgmesObject equivalentInjectionStatements = equivalentInjection.normalize(cimNamespace(context));
+                sink.accept(equivalentInjectionStatements);
                 exported.add(equivalentInjectionId);
             }
         }
     }
 
     private static void exportTapChangers(Network network, Map<String, List<RegulatingControlView>> regulatingControlViews,
-                                          CgmesStatementSink<SshStatement> sink, CgmesExportContext context) throws XMLStreamException {
+                                          CgmesObjectSink sink, CgmesExportContext context) throws XMLStreamException {
         for (TwoWindingsTransformer twt : network.getTwoWindingsTransformers()) {
             if (twt.hasPhaseTapChanger()) {
                 String aliasType = twt.getAliasFromType(ALIAS_PHASE_TAP_CHANGER2).isPresent() && twt.getAliasFromType(ALIAS_PHASE_TAP_CHANGER1).isEmpty() ?
@@ -296,7 +301,7 @@ public final class SteadyStateHypothesisExport {
     private static <C extends Connectable<C>> void exportTapChanger(C twt, String aliasType, Part part, int endNumber,
                                                                     String defaultType, TapChanger<?, ?, ?, ?> tc,
                                                                     Map<String, List<RegulatingControlView>> regulatingControlViews,
-                                                                    CgmesStatementSink<SshStatement> sink,
+                                                                    CgmesObjectSink sink,
                                                                     CgmesExportContext context) throws XMLStreamException {
         String tapChangerId = context.getNamingStrategy().getCgmesIdFromAlias(twt, aliasType);
         String cgmesTapChangerId = twt.getAliasFromType(aliasType).orElse(null);
@@ -307,7 +312,8 @@ public final class SteadyStateHypothesisExport {
         }
 
         TapChangerSsh tapChanger = new TapChangerSsh(type, tapChangerId, tc.isRegulating(), tc.getTapPosition());
-        sink.accept(tapChanger);
+        CgmesObject tapChangerStatements = tapChanger.normalize(cimNamespace(context));
+        sink.accept(tapChangerStatements);
         if (tc instanceof RatioTapChanger rtc) {
             addRegulatingControlView(rtc, tapChangerControlId, regulatingControlViews, context);
         } else if (tc instanceof PhaseTapChanger ptc) {
@@ -326,7 +332,7 @@ public final class SteadyStateHypothesisExport {
     }
 
     private static void exportShuntCompensators(Network network, Map<String, List<RegulatingControlView>> regulatingControlViews,
-                                                CgmesStatementSink<SshStatement> sink, CgmesExportContext context) throws XMLStreamException {
+                                                CgmesObjectSink sink, CgmesExportContext context) throws XMLStreamException {
         for (ShuntCompensator s : network.getShuntCompensators()) {
             if ("true".equals(s.getProperty(PROPERTY_IS_EQUIVALENT_SHUNT))) {
                 continue;
@@ -338,14 +344,15 @@ public final class SteadyStateHypothesisExport {
                 s.getSectionCount(),
                 s.isRegulating()
             );
-            sink.accept(shuntCompensator);
+            CgmesObject shuntCompensatorStatements = shuntCompensator.normalize(cimNamespace(context));
+            sink.accept(shuntCompensatorStatements);
 
             addRegulatingControlView(s, getRegulatingControlId(s, context), regulatingControlViews, context);
         }
     }
 
     private static void exportGenerators(Network network, Map<String, List<RegulatingControlView>> regulatingControlViews,
-                                                 CgmesStatementSink<SshStatement> sink, CgmesExportContext context) throws XMLStreamException {
+                                                 CgmesObjectSink sink, CgmesExportContext context) throws XMLStreamException {
         for (Generator g : network.getGenerators()) {
             String cgmesOriginalClass = g.getProperty(PROPERTY_CGMES_ORIGINAL_CLASS, CgmesNames.SYNCHRONOUS_MACHINE);
 
@@ -359,7 +366,8 @@ public final class SteadyStateHypothesisExport {
                         controlEnabled,
                         g.getLocalTargetV()
                     );
-                    sink.accept(equivalentInjection);
+                    CgmesObject equivalentInjectionStatements = equivalentInjection.normalize(cimNamespace(context));
+                    sink.accept(equivalentInjectionStatements);
                     break;
                 case CgmesNames.EXTERNAL_NETWORK_INJECTION:
                     ExternalNetworkInjectionSsh externalNetworkInjection = new ExternalNetworkInjectionSsh(
@@ -369,7 +377,8 @@ public final class SteadyStateHypothesisExport {
                         -g.getLocalTargetQ(),
                         ReferencePriority.get(g)
                     );
-                    sink.accept(externalNetworkInjection);
+                    CgmesObject externalNetworkInjectionStatements = externalNetworkInjection.normalize(cimNamespace(context));
+                    sink.accept(externalNetworkInjectionStatements);
                     addRegulatingControlView(g, getRegulatingControlId(g, context), regulatingControlViews, context);
                     break;
                 case CgmesNames.SYNCHRONOUS_MACHINE:
@@ -381,7 +390,8 @@ public final class SteadyStateHypothesisExport {
                         ReferencePriority.get(g),
                         obtainOperatingMode(g, g.getMinP(), g.getMaxP(), g.getTargetP())
                     );
-                    sink.accept(synchronousMachine);
+                    CgmesObject synchronousMachineStatements = synchronousMachine.normalize(cimNamespace(context));
+                    sink.accept(synchronousMachineStatements);
                     addRegulatingControlView(g, getRegulatingControlId(g, context), regulatingControlViews, context);
                     break;
                 default:
@@ -390,7 +400,7 @@ public final class SteadyStateHypothesisExport {
         }
     }
 
-    private static void exportBatteries(Network network, CgmesStatementSink<SshStatement> sink, CgmesExportContext context) throws XMLStreamException {
+    private static void exportBatteries(Network network, CgmesObjectSink sink, CgmesExportContext context) throws XMLStreamException {
         for (Battery b : network.getBatteries()) {
             boolean controlEnabled = b.getVoltageRegulation() != null && b.getVoltageRegulation().isRegulating();
             SynchronousMachineSsh synchronousMachine = new SynchronousMachineSsh(
@@ -401,7 +411,8 @@ public final class SteadyStateHypothesisExport {
                 ReferencePriority.get(b),
                 obtainOperatingMode(b, b.getMinP(), b.getMaxP(), b.getTargetP())
             );
-            sink.accept(synchronousMachine);
+            CgmesObject synchronousMachineStatements = synchronousMachine.normalize(cimNamespace(context));
+            sink.accept(synchronousMachineStatements);
         }
     }
 
@@ -445,14 +456,15 @@ public final class SteadyStateHypothesisExport {
     }
 
     private static void exportStaticVarCompensators(Network network, Map<String, List<RegulatingControlView>> regulatingControlViews,
-                                                    CgmesStatementSink<SshStatement> sink, CgmesExportContext context) throws XMLStreamException {
+                                                    CgmesObjectSink sink, CgmesExportContext context) throws XMLStreamException {
         for (StaticVarCompensator svc : network.getStaticVarCompensators()) {
             StaticVarCompensatorSsh staticVarCompensator = new StaticVarCompensatorSsh(
                 context.getNamingStrategy().getCgmesId(svc),
                 svc.isRegulating(),
                 svc.getLocalTargetQ()
             );
-            sink.accept(staticVarCompensator);
+            CgmesObject staticVarCompensatorStatements = staticVarCompensator.normalize(cimNamespace(context));
+            sink.accept(staticVarCompensatorStatements);
 
             addRegulatingControlView(svc, getRegulatingControlId(svc, context), regulatingControlViews, context);
         }
@@ -477,10 +489,11 @@ public final class SteadyStateHypothesisExport {
         }
     }
 
-    private static void exportHiddenTapChanger(CgmesTapChanger cgmesTc, String defaultType, CgmesStatementSink<SshStatement> sink, CgmesExportContext context) throws XMLStreamException {
+    private static void exportHiddenTapChanger(CgmesTapChanger cgmesTc, String defaultType, CgmesObjectSink sink, CgmesExportContext context) throws XMLStreamException {
         TapChangerSsh tapChanger = new TapChangerSsh(Optional.ofNullable(cgmesTc.getType()).orElse(defaultType), cgmesTc.getId(), false,
                 cgmesTc.getStep().orElseThrow(() -> new PowsyblException("Non null step expected for tap changer " + cgmesTc.getId())));
-        sink.accept(tapChanger);
+        CgmesObject tapChangerStatements = tapChanger.normalize(cimNamespace(context));
+        sink.accept(tapChangerStatements);
     }
 
     private static String getRegulatingControlId(Identifiable<?> identifiable, CgmesExportContext context) {
@@ -538,7 +551,7 @@ public final class SteadyStateHypothesisExport {
     }
 
     private static void exportRegulatingControls(Map<String, List<RegulatingControlView>> regulatingControlViews,
-                                                 CgmesStatementSink<SshStatement> sink, CgmesExportContext context) throws XMLStreamException {
+                                                 CgmesObjectSink sink, CgmesExportContext context) throws XMLStreamException {
         for (List<RegulatingControlView> views : regulatingControlViews.values()) {
             exportRegulatingControl(combineRegulatingControlViews(views), sink, context);
         }
@@ -569,7 +582,7 @@ public final class SteadyStateHypothesisExport {
                 || currentTargetDeadband > 0 && (combinedTargetDeadband == 0 || currentTargetDeadband < combinedTargetDeadband);
     }
 
-    private static void exportRegulatingControl(RegulatingControlView rc, CgmesStatementSink<SshStatement> sink, CgmesExportContext context) throws XMLStreamException {
+    private static void exportRegulatingControl(RegulatingControlView rc, CgmesObjectSink sink, CgmesExportContext context) throws XMLStreamException {
         RegulatingControlSsh regulatingControl = new RegulatingControlSsh(
             regulatingControlClassname(rc.type),
             rc.id,
@@ -579,7 +592,8 @@ public final class SteadyStateHypothesisExport {
             rc.targetValue,
             rc.targetValueUnitMultiplier
         );
-        sink.accept(regulatingControl);
+        CgmesObject regulatingControlStatements = regulatingControl.normalize(cimNamespace(context));
+        sink.accept(regulatingControlStatements);
     }
 
     private static String regulatingControlClassname(RegulatingControlType type) {
@@ -590,7 +604,7 @@ public final class SteadyStateHypothesisExport {
         }
     }
 
-    private static void exportSwitch(Switch sw, CgmesStatementSink<SshStatement> sink, CgmesExportContext context) {
+    private static void exportSwitch(Switch sw, CgmesObjectSink sink, CgmesExportContext context) {
         try {
             String switchType = sw.getProperty(PROPERTY_CGMES_ORIGINAL_CLASS);
             String className = switchType != null ? switchType : CgmesExportUtil.switchClassname(sw.getKind());
@@ -599,26 +613,28 @@ public final class SteadyStateHypothesisExport {
                 context.getNamingStrategy().getCgmesId(sw),
                 sw.isOpen()
             );
-            sink.accept(switchSsh);
+            CgmesObject switchSshStatements = switchSsh.normalize(cimNamespace(context));
+            sink.accept(switchSshStatements);
         } catch (XMLStreamException e) {
             throw new UncheckedXmlStreamException(e);
         }
     }
 
-    private static void exportTerminal(Terminal t, CgmesStatementSink<SshStatement> sink, CgmesExportContext context) {
+    private static void exportTerminal(Terminal t, CgmesObjectSink sink, CgmesExportContext context) {
         exportTerminal(CgmesExportUtil.getTerminalId(t, context), t.isConnected(), sink, context);
     }
 
-    private static void exportTerminal(String terminalId, boolean connected, CgmesStatementSink<SshStatement> sink, CgmesExportContext context) {
+    private static void exportTerminal(String terminalId, boolean connected, CgmesObjectSink sink, CgmesExportContext context) {
         try {
             TerminalSsh terminal = new TerminalSsh(terminalId, connected);
-            sink.accept(terminal);
+            CgmesObject terminalStatements = terminal.normalize(cimNamespace(context));
+            sink.accept(terminalStatements);
         } catch (XMLStreamException e) {
             throw new UncheckedXmlStreamException(e);
         }
     }
 
-    private static void exportLoads(Network network, CgmesStatementSink<SshStatement> sink, CgmesExportContext context) throws XMLStreamException {
+    private static void exportLoads(Network network, CgmesObjectSink sink, CgmesExportContext context) throws XMLStreamException {
         for (Load load : network.getLoads()) {
             if (context.isExportedEquipment(load)) {
                 String className = obtainLoadClassName(load, context);
@@ -631,7 +647,8 @@ public final class SteadyStateHypothesisExport {
                             false,
                             obtainAsynchronousMachineKind(load.getP0())
                         );
-                        sink.accept(asynchronousMachine);
+                        CgmesObject asynchronousMachineStatements = asynchronousMachine.normalize(cimNamespace(context));
+                        sink.accept(asynchronousMachineStatements);
                     }
                     case CgmesNames.ENERGY_SOURCE -> {
                         EnergySourceSsh energySource = new EnergySourceSsh(
@@ -639,7 +656,8 @@ public final class SteadyStateHypothesisExport {
                             load.getP0(),
                             load.getQ0()
                         );
-                        sink.accept(energySource);
+                        CgmesObject energySourceStatements = energySource.normalize(cimNamespace(context));
+                        sink.accept(energySourceStatements);
                     }
                     case CgmesNames.ENERGY_CONSUMER, CgmesNames.CONFORM_LOAD, CgmesNames.NONCONFORM_LOAD, CgmesNames.STATION_SUPPLY -> {
                         EnergyConsumerSsh energyConsumer = new EnergyConsumerSsh(
@@ -648,7 +666,8 @@ public final class SteadyStateHypothesisExport {
                             load.getP0(),
                             load.getQ0()
                         );
-                        sink.accept(energyConsumer);
+                        CgmesObject energyConsumerStatements = energyConsumer.normalize(cimNamespace(context));
+                        sink.accept(energyConsumerStatements);
                     }
                     default -> throw new PowsyblException("Unexpected class name: " + className);
                 }
@@ -670,7 +689,7 @@ public final class SteadyStateHypothesisExport {
         }
     }
 
-    private static void exportConverters(Network network, CgmesStatementSink<SshStatement> sink, CgmesExportContext context) throws XMLStreamException {
+    private static void exportConverters(Network network, CgmesObjectSink sink, CgmesExportContext context) throws XMLStreamException {
         for (HvdcConverterStation<?> converterStation : network.getHvdcConverterStations()) {
             exportConverterStation(converterStation, sink, context);
         }
@@ -682,7 +701,7 @@ public final class SteadyStateHypothesisExport {
         }
     }
 
-    private static void exportConverterStation(HvdcConverterStation<?> converterStation, CgmesStatementSink<SshStatement> sink, CgmesExportContext context) throws XMLStreamException {
+    private static void exportConverterStation(HvdcConverterStation<?> converterStation, CgmesObjectSink sink, CgmesExportContext context) throws XMLStreamException {
         String converterId = context.getNamingStrategy().getCgmesId(converterStation);
         double targetPpcc;
         double targetUdc;
@@ -709,7 +728,8 @@ public final class SteadyStateHypothesisExport {
             String operatingMode = CgmesExportUtil.isConverterStationRectifier(converterStation) ? "rectifier" : "inverter";
             String pPccControl = CgmesExportUtil.isConverterStationRectifier(converterStation) ? "activePower" : "dcVoltage";
             CsConverterSsh csConverter = new CsConverterSsh(converterId, targetPpcc, targetUdc, p, q, 0.0, 0.0, 0.0, operatingMode, pPccControl);
-            sink.accept(csConverter);
+            CgmesObject csConverterStatements = csConverter.normalize(cimNamespace(context));
+            sink.accept(csConverterStatements);
         } else if (converterStation instanceof VscConverterStation vscConverterStation) {
             p = vscConverterStation.getRegulatingTerminal().getP();
             q = -vscConverterStation.getLocalTargetQ();
@@ -718,11 +738,12 @@ public final class SteadyStateHypothesisExport {
             String pPccControl = CgmesExportUtil.isConverterStationRectifier(converterStation) ? "pPcc" : "udc";
             String qPccControl = vscConverterStation.isRegulatingWithMode(RegulationMode.VOLTAGE) ? "voltagePcc" : "reactivePcc";
             VsConverterSsh vsConverter = new VsConverterSsh(converterId, targetPpcc, targetUdc, p, q, 0.0, 0.0, 0.0, targetQpcc, targetUpcc, pPccControl, qPccControl);
-            sink.accept(vsConverter);
+            CgmesObject vsConverterStatements = vsConverter.normalize(cimNamespace(context));
+            sink.accept(vsConverterStatements);
         }
     }
 
-    private static void exportDCTerminals(Network network, CgmesStatementSink<SshStatement> sink, CgmesExportContext context) throws XMLStreamException {
+    private static void exportDCTerminals(Network network, CgmesObjectSink sink, CgmesExportContext context) throws XMLStreamException {
         for (HvdcLine line : network.getHvdcLines()) {
             exportHvdcLineDCTerminals(line, sink, context);
         }
@@ -743,7 +764,7 @@ public final class SteadyStateHypothesisExport {
         }
     }
 
-    private static void exportHvdcLineDCTerminals(HvdcLine line, CgmesStatementSink<SshStatement> sink, CgmesExportContext context) throws XMLStreamException {
+    private static void exportHvdcLineDCTerminals(HvdcLine line, CgmesObjectSink sink, CgmesExportContext context) throws XMLStreamException {
         String acdcConverterDcTerminal1 = context.getNamingStrategy().getCgmesIdFromAlias(line.getConverterStation1(), ALIAS_DC_TERMINAL1);
         exportDCTerminal(acdcConverterDcTerminal1, CgmesNames.ACDC_CONVERTER_DC_TERMINAL, true, sink, context);
         String acdcConverterDcTerminal1G = context.getNamingStrategy().getCgmesIdFromAlias(line.getConverterStation1(), ALIAS_DC_TERMINAL2);
@@ -765,9 +786,10 @@ public final class SteadyStateHypothesisExport {
         exportDCTerminal(dcTerminal2G, CgmesNames.DC_TERMINAL, true, sink, context);
     }
 
-    private static void exportDCTerminal(String terminalId, String className, boolean connected, CgmesStatementSink<SshStatement> sink, CgmesExportContext context) throws XMLStreamException {
+    private static void exportDCTerminal(String terminalId, String className, boolean connected, CgmesObjectSink sink, CgmesExportContext context) throws XMLStreamException {
         DCTerminalSsh dcTerminal = new DCTerminalSsh(className, terminalId, connected);
-        sink.accept(dcTerminal);
+        CgmesObject dcTerminalStatements = dcTerminal.normalize(cimNamespace(context));
+        sink.accept(dcTerminalStatements);
     }
 
     private static double getQfromPowerFactor(double p, double powerFactor) {
@@ -777,7 +799,7 @@ public final class SteadyStateHypothesisExport {
         return p * Math.sqrt((1 - powerFactor * powerFactor) / (powerFactor * powerFactor));
     }
 
-    private static void exportGeneratingUnitsParticitationFactors(Network network, CgmesStatementSink<SshStatement> sink, CgmesExportContext context) throws XMLStreamException {
+    private static void exportGeneratingUnitsParticitationFactors(Network network, CgmesObjectSink sink, CgmesExportContext context) throws XMLStreamException {
         // Multiple generators may share the same generation unit,
         // we will choose the participation factor from the last generator that references the generating unit
         // We only consider generators and batteries that have participation factors
@@ -795,7 +817,8 @@ public final class SteadyStateHypothesisExport {
             }
         }
         for (GeneratingUnitSsh gu : generatingUnits.values()) {
-            sink.accept(gu);
+            CgmesObject guStatements = gu.normalize(cimNamespace(context));
+            sink.accept(guStatements);
         }
     }
 
@@ -840,7 +863,7 @@ public final class SteadyStateHypothesisExport {
         throw new PowsyblException("Unexpected class for " + i.getId() + " using generating units: " + i.getClass());
     }
 
-    private static void exportControlAreas(Network network, CgmesStatementSink<SshStatement> sink, CgmesExportContext context) throws XMLStreamException {
+    private static void exportControlAreas(Network network, CgmesObjectSink sink, CgmesExportContext context) throws XMLStreamException {
         for (Area area : network.getAreas()) {
             if (CgmesNames.CONTROL_AREA_TYPE_KIND_INTERCHANGE.equals(area.getAreaType())) {
                 exportControlArea(area, sink, context);
@@ -848,7 +871,7 @@ public final class SteadyStateHypothesisExport {
         }
     }
 
-    private static void exportControlArea(Area controlArea, CgmesStatementSink<SshStatement> sink, CgmesExportContext context) throws XMLStreamException {
+    private static void exportControlArea(Area controlArea, CgmesObjectSink sink, CgmesExportContext context) throws XMLStreamException {
         String areaId = context.getNamingStrategy().getCgmesId(controlArea.getId());
         double netInterchange = controlArea.getInterchangeTarget().orElse(Double.NaN);
         Double pTolerance = null;
@@ -856,10 +879,11 @@ public final class SteadyStateHypothesisExport {
             pTolerance = Double.parseDouble(controlArea.getProperty("pTolerance"));
         }
         ControlAreaSsh controlAreaSsh = new ControlAreaSsh(areaId, netInterchange, pTolerance);
-        sink.accept(controlAreaSsh);
+        CgmesObject controlAreaSshStatements = controlAreaSsh.normalize(cimNamespace(context));
+        sink.accept(controlAreaSshStatements);
     }
 
-    private static void exportAcDcConverter(AcDcConverter<?> converter, CgmesStatementSink<SshStatement> sink, CgmesExportContext context) throws XMLStreamException {
+    private static void exportAcDcConverter(AcDcConverter<?> converter, CgmesObjectSink sink, CgmesExportContext context) throws XMLStreamException {
         String converterId = context.getNamingStrategy().getCgmesId(converter);
         double targetPpcc = converter.getControlMode() == AcDcConverter.ControlMode.P_PCC ? converter.getTargetP() : 0.0;
         double targetUdc = converter.getControlMode() == AcDcConverter.ControlMode.V_DC ? converter.getTargetVdc() : 0.0;
@@ -869,15 +893,24 @@ public final class SteadyStateHypothesisExport {
             String operatingMode = targetPpcc > 0.0 ? "rectifier" : "inverter";
             String pPccControl = converter.getControlMode() == AcDcConverter.ControlMode.P_PCC ? "activePower" : "dcVoltage";
             CsConverterSsh csConverter = new CsConverterSsh(converterId, targetPpcc, targetUdc, p, q, 0.0, 0.0, 0.0, operatingMode, pPccControl);
-            sink.accept(csConverter);
+            CgmesObject csConverterStatements = csConverter.normalize(cimNamespace(context));
+            sink.accept(csConverterStatements);
         } else if (converter instanceof VoltageSourceConverter vsc) {
             double targetQpcc = vsc.isWithMode(RegulationMode.REACTIVE_POWER) ? vsc.getRegulatingTargetQ() : 0;
             double targetUpcc = vsc.isWithMode(RegulationMode.VOLTAGE) ? vsc.getRegulatingTargetV() : 0;
             String pPccControl = vsc.getControlMode() == AcDcConverter.ControlMode.P_PCC ? "pPcc" : "udc";
             String qPccControl = vsc.isWithMode(RegulationMode.VOLTAGE) ? "voltagePcc" : "reactivePcc";
             VsConverterSsh vsConverter = new VsConverterSsh(converterId, targetPpcc, targetUdc, p, vsc.getLocalTargetQ(), 0.0, 0.0, 0.0, targetQpcc, targetUpcc, pPccControl, qPccControl);
-            sink.accept(vsConverter);
+            CgmesObject vsConverterStatements = vsConverter.normalize(cimNamespace(context));
+            sink.accept(vsConverterStatements);
         }
+    }
+
+    /**
+     * Get the CIM namespace of the export, for the enumeration values of the SSH records.
+     */
+    private static String cimNamespace(CgmesExportContext context) {
+        return context.getCim().getNamespace();
     }
 
     private enum RegulatingControlType {
